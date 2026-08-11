@@ -796,9 +796,17 @@ AGENTS_CONTENT=$(cat <<'AGENTS_EOF'
 > Local-only, machine-specific file maintained by `agentcubicle` at
 > `.agentcubicle/AGENTS.local.md`, loaded automatically by whichever coding agent
 > is running (mechanism varies by tool; see README.md if you are a human
-> curious how) — *in addition to* any AGENTS.md the project itself already
-> has, never as a replacement. Nothing here is ever committed, tracked, or
+> curious how), *in addition to* any `AGENTS.md` the project itself tracks,
+> never as a replacement. Nothing here is ever committed, tracked, or
 > shared with anyone who clones the repo.
+>
+> The name of this file is `AGENTS.local.md`, and it is not the same file as
+> a bare `AGENTS.md`. Where the rules below mention `AGENTS.md`, `CLAUDE.md`
+> or `MEMORY.md` without the `.local` part, they mean some other file, and
+> the distinction is the point of the name. Call this one by its full name
+> when you refer to it, and never write to `AGENTS.md` meaning this file:
+> a root `AGENTS.md` is tracked in git and shared with everyone who clones,
+> which is exactly what this file is designed not to be.
 
 ## Rules
 
@@ -826,7 +834,8 @@ When updating agent rules, select the appropriate destination:
 
 * If the instructions are specific to the agentcubicle container context: `.agentcubicle/AGENTS.local.md`.
 * If not:
-  * If a git-tracked `AGENTS.md` exists at the project level, ask the user where to put the instructions.
+  * If a git-tracked `AGENTS.md` exists at the project level (the project's
+    own shared file, not this one), ask the user where to put the instructions.
   * Else `.agentcubicle/AGENTS.local.md`.
 
 ## Memory
@@ -867,8 +876,9 @@ memory files beyond that, state their full path, relative to the repo root,
 in `.agentcubicle/MEMORY.local.md` so the agent can find them, and prefer
 `.agentcubicle/memories/` as their location. This does not apply to a
 memory directory a tool manages and loads itself (Claude Code keeps one at
-`.agentcubicle/claude-home/projects/<encoded-path>/memory/`, indexed by its
-own `MEMORY.md`): leave those where the tool puts them.
+`.agentcubicle/claude-home/projects/<encoded-path>/memory/`, indexed by a
+`MEMORY.md` inside that directory, which is a different file from
+`.agentcubicle/MEMORY.local.md`): leave those where the tool puts them.
 
 Clean up MEMORY.local.md regularly, not just when it gets unwieldy: once
 something is captured permanently in README.md or the design docs, or is
@@ -919,6 +929,12 @@ CLAUDE_CONTENT=$(cat <<'CLAUDE_EOF'
 > (working notes). Their content is inlined below via `@` imports, so you
 > already have it without needing a separate read — do not re-read either
 > file with a tool call, that just adds a needless round trip.
+>
+> The name of this file is `CLAUDE.local.md`, and it is not the same file as
+> a bare `CLAUDE.md`. Where these rules mention `CLAUDE.md` or `AGENTS.md`
+> without the `.local` part, they mean the project's own tracked file, which
+> is shared with everyone who clones. Call this one by its full name when you
+> refer to it, and never write to `CLAUDE.md` meaning this file.
 
 @AGENTS.local.md
 @MEMORY.local.md
@@ -932,7 +948,8 @@ When updating agent rules, select the appropriate destination:
 For anything truly Claude-Code-specific:
 * If the instructions are specific to the agentcubicle container context: `.agentcubicle/CLAUDE.local.md`.
 * If not:
-  * If a git-tracked `CLAUDE.md` exists at the project level, ask the user where to put the instructions.
+  * If a git-tracked `CLAUDE.md` exists at the project level (the project's
+    own shared file, not this one), ask the user where to put the instructions.
   * Else `.agentcubicle/CLAUDE.local.md`.
 
 For anything not Claude-Code-specific, follow AGENTS.local.md's own instructions on

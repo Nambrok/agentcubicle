@@ -209,6 +209,27 @@ already seeded, symlinked, and excluded) done without prompting. Only
 the load-bearing import directives are rewritten; stale self-referential
 *prose* inside a file a user has already customized is left alone.
 
+A naming distinction only helps if the agent reading the file honors it,
+and agents drop the `.local` part. Two reasons, and neither needs a
+legacy-seeded project: a model summarizing which instruction files it
+loaded treats `AGENTS.local.md` and `AGENTS.md` as the same name worth
+mentioning, and opencode's own system prompt primes the bare name hard
+(it describes the `AGENTS.md` convention at length and tells the agent it
+MUST keep `AGENTS.md` files updated, while its native discovery walks up
+the tree for `AGENTS.md` specifically; the local files reach it through
+the separate `instructions` config array). Left alone, that ends with an
+agent writing rules meant for a local, never-committed file into a
+tracked `AGENTS.md` at the project root, shared with everyone who clones,
+which is the outcome the naming exists to prevent.
+
+So each seeded template states its own identity in its header: this file
+is `AGENTS.local.md`, a bare `AGENTS.md` is a different, tracked file,
+refer to this one by its full name. The two destination rules that
+legitimately mention the bare names say inline that they mean the
+project's own shared file. This is a nudge like any other model
+instruction, not a guarantee, but it puts the disambiguation in the same
+context window as the mistake.
+
 They're deliberately never placed at the literal `AGENTS.md`/`CLAUDE.md`
 paths, even as a `.git/info/exclude`d symlink: if the upstream remote
 ever adds a real tracked file at that exact path, git refuses to
