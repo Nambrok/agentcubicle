@@ -154,6 +154,47 @@ dir rather than reusing the host `/run/user/<uid>` path. Both engine paths
 (file ownership round-trip and host config forwarding) are exercised by the
 `engines` CI workflow; the clipboard path is not (runners are headless).
 
+## Running as root is not supported
+
+agentcubicle exits with an error if `id -u` is 0, before engine detection, for
+every subcommand. The trigger was a user whose account was not in the `docker`
+group running `sudo ./agentcubicle opencode`, which got as far as starting a
+container and then failed with three errors that all pointed away from the cause:
+`groupmod: GID '0' already exists`, `could not lock config file
+/home/user/.gitconfig`, and `EACCES: permission denied, mkdir '/home/user/.local'`.
+
+Everything here is keyed to the identity of the invoking user, and under `sudo`
+that identity is root, which breaks the run in three places:
+
+1. `$HOME` is `/root`, so the config-home lookup reads root's config rather than
+   the user's. In the reported case that produced a "no providers configured in
+   `/root/.config/opencode/`" warning: the user's own credentials and settings
+   never reached the container.
+2. `HOST_UID`/`HOST_GID` are both 0, so the root-phase `groupmod -g 0 user` and
+   `usermod -u 0 user` collide with the container root account and fail. `user`
+   keeps UID 1000.
+3. The `chown`s run anyway with `0:0`, making `/home/user` and its contents
+   root-owned, and then the `su` drops to UID 1000 into a home it cannot write.
+   That is the gitconfig lock failure and the `EACCES`.
+
+Supporting `sudo` was rejected rather than fixed. It would mean reconstructing
+the invoking user from `SUDO_UID`/`SUDO_GID`/`SUDO_USER` and their home, then
+doing the same for everything else keyed to the login session: `XAUTHORITY`,
+`DISPLAY` and `XDG_RUNTIME_DIR` for the X11/Wayland/clipboard forwarding, plus
+git identity forwarding. That is a second identity-resolution path to maintain
+for a case that has two existing answers: join the `docker` group, or use
+rootless Podman (already preferred when present). `sudo` also gains nothing over
+`docker` group membership, since that membership is root-equivalent anyway.
+
+The check is on UID 0, not on `SUDO_USER`, because being logged in as root fails
+at step 2 in exactly the same way. There is deliberately no override environment
+variable, since there is no working mode behind it to unlock.
+
+Refusing every subcommand rather than only the run path keeps the rule one line
+and one message, at the cost of one sharp edge: containers created by an earlier
+root run cannot be cleared with `sudo agentcubicle cleanup` either. The error
+message therefore points at removing them through the engine directly.
+
 ## Git identity forwarding
 
 An explicit **allowlist** (not a blocklist) of the host's

@@ -34,6 +34,44 @@
 
 set -euo pipefail
 
+# Everything below is keyed to the identity of the invoking user: the container
+# remaps its `user` account onto that UID/GID so files written into the project
+# mount come out owned by the caller, and tool config is read from $HOME.
+# Neither works as root. UID 0 collides with the container root account, so the
+# remap fails and the unprivileged user we drop to ends up with a home it cannot
+# write, and $HOME is /root, so the config that gets forwarded belongs to root
+# rather than to the caller. Refuse here, before engine detection, instead of
+# failing deep inside the container with errors that point elsewhere.
+# See docs/DESIGN.md, "Running as root is not supported".
+if [[ "$(id -u)" -eq 0 ]]; then
+  {
+    echo "Error: agentcubicle does not run as root, including under sudo."
+    echo
+    echo "It maps your host UID/GID onto the container user so files land owned by you,"
+    echo "and it reads tool config from \$HOME. As root the UID remap collides with the"
+    echo "container root account, and \$HOME is /root, so it would forward root config"
+    echo "instead of yours."
+    echo
+    if [[ -n "${SUDO_USER:-}" ]]; then
+      echo "Run it again as $SUDO_USER, without sudo. If sudo was needed because"
+      echo "$SUDO_USER cannot reach the container engine, pick one of:"
+    else
+      echo "Log in as your normal user instead. If that user cannot reach the container"
+      echo "engine, pick one of:"
+    fi
+    echo "  - Add the user to the docker group, then start a fresh login (or newgrp docker):"
+    echo "      sudo usermod -aG docker <user>"
+    echo "  - Or use rootless podman, which needs no group membership and no sudo."
+    echo
+    echo "This refusal covers the management subcommands too, so containers left behind"
+    echo "by an earlier root run have to be removed with the engine directly:"
+    echo "      sudo docker ps -a --filter name=^ac-"
+    echo "      sudo docker rm <name>"
+    echo "Substitute podman for docker if that was the engine."
+  } >&2
+  exit 1
+fi
+
 WORKDIR="$(pwd)"
 CONTAINER_PROJECT_DIR="/home/user/project"
 COMMIT_TARGET="agentcubicle"

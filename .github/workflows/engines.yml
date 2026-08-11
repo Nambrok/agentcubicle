@@ -136,3 +136,27 @@ jobs:
           AGENTCUBICLE_TEST_CMD="$probe" ./agentcubicle claude
           cat settings-probe.json
           test "$(jq -r .statusLine settings-probe.json)" = "null"
+
+      # Running as root cannot work (the UID remap collides with the container
+      # root account and config would be read from /root), so it is refused up
+      # front. Host-side and engine-independent, but run on both legs anyway.
+      # `env` passes the engine through because sudo resets the environment;
+      # the value does not affect the outcome, since the check precedes engine
+      # detection.
+      - name: Assert root/sudo invocation is refused
+        run: |
+          set -euxo pipefail
+          # Fail loudly on a sudo problem rather than letting it masquerade as
+          # the refusal under test.
+          sudo -n true
+          if sudo -n env AGENTCUBICLE_ENGINE="$AGENTCUBICLE_ENGINE" ./agentcubicle opencode > sudoout.txt 2> sudoerr.txt; then
+            echo "expected a non-zero exit under sudo"
+            cat sudoout.txt sudoerr.txt
+            exit 1
+          fi
+          cat sudoout.txt sudoerr.txt
+          grep -q "does not run as root" sudoerr.txt
+          # It must bail before any container work starts.
+          ! grep -q "Starting container" sudoout.txt
+          # SUDO_USER is set here, so the message names the invoking user.
+          grep -q "$(id -un)" sudoerr.txt

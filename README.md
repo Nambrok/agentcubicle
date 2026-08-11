@@ -450,6 +450,13 @@ agentcubicle shell --name ac-myproject-abc123
   installed; override with `AGENTCUBICLE_ENGINE=docker` or `=podman`.
 - `jq`
 - Current directory as the project workspace
+- Your normal user account. agentcubicle refuses to start as root, including
+  under `sudo`: it maps your host UID/GID onto the container user and reads tool
+  config from your `$HOME`, and as root both of those give the wrong answer. If
+  your user cannot reach the Docker daemon, add it to the `docker` group
+  (`sudo usermod -aG docker <user>`, then start a fresh login) or use rootless
+  Podman, which needs neither. See
+  [docs/DESIGN.md](docs/DESIGN.md) for the details.
 
 ## Contributing
 
