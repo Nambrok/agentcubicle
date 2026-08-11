@@ -16,6 +16,7 @@ I'm sharing the result in case it's useful to anyone, but I don't make any promi
 
 - Commit-only workflow: agents can commit inside the container (and will usually ask first when they respect the default rules), but pushing/PRs are left to you on the host. `git` identity forwarding is an allowlist that deliberately skips `credential.helper`.
 - Starts every session in a read-only plan mode you manually escalate out of (`opencode --agent plan`; Claude `--permission-mode plan`).
+- Containers are removed when the tool exits, so they don't pile up on disk. Pass `--keep-container` to keep one around (to `commit` it afterwards, say).
 - Minimal mounts: project dir (rw), plus tool config read-only (`~/.config/opencode` for opencode; only `~/.claude/settings.json` for Claude, never the OAuth/credentials files).
 - Files you create come out owned by you on the host: under Docker via a root-phase UID/GID remap, under rootless Podman via `--userns=keep-id`.
 - Runs on Docker or rootless Podman. The engine is auto-detected (Podman preferred when both are installed); set `AGENTCUBICLE_ENGINE=docker` or `=podman` to override.
@@ -230,13 +231,15 @@ Commit the current running container as `agentcubicle`, persisting any runtime c
 
 | Flag        | Description                                                    |
 |-------------|----------------------------------------------------------------|
-| `--name N`  | Commit a specific container by name (works for both running and stopped containers) |
+| `--name N`  | Commit a specific container by name (running or stopped) |
 
 Without `--name`, the script lists running `ac-*` containers interactively and asks you to pick one.
 
+Containers are removed when the tool exits (see [Container lifetime](#container-lifetime)), so committing a *stopped* container only works if it was started with `--keep-container`. Committing a container while it is still running needs nothing special: run `agentcubicle commit` from a second terminal.
+
 ### `cleanup`
 
-Remove all exited containers with names prefixed `ac-`.
+Remove all exited containers with names prefixed `ac-`. Since containers are removed on exit, this applies to ones started with `--keep-container`, plus any left behind by an older version of the script.
 
 ### `list`
 
@@ -282,7 +285,24 @@ If no subcommand is given, a new container is started based on `agentcubicle` wi
 | `--img I`   | Override the image (overrides default `agentcubicle`)       |
 | `--mount P` | Extra mount, e.g. `--mount /etc/ssh:/etc/ssh:ro`. Repeatable.  |
 | `--env E`   | Extra env var, e.g. `--env ANTHROPIC_API_KEY="sk-ant-..."`. Repeatable. |
+| `--keep-container` | Keep the container after the tool exits. Without it, the container is removed on exit. |
 | `--`        | Pass remaining arguments directly to the tool                  |
+
+### Container lifetime
+
+When the tool exits, the container is removed. Nothing is lost by that: your work
+lives in the bind-mounted project directory, as does the persisted Claude Code
+state under `.agentcubicle/claude-home` (which already survived container
+recreation before, since a new container is created on every run anyway).
+Changes you want to keep *inside* the container (a package you installed, say)
+are kept by committing them into the image with [`commit`](#commit). Containers
+that stay around only take disk space.
+
+`--keep-container` opts out and leaves the container in place after it exits. The
+one thing that needs it is committing a container *after* the fact rather than
+while it is still running; `agentcubicle cleanup` removes such containers later.
+Note that `--name` on its own does not keep the container: it only gives the
+container a fixed name so `shell` and `commit` can find it during the session.
 
 ### Container naming
 
@@ -297,7 +317,7 @@ The project name is derived from the current working directory basename, with no
 ## How it works
 
 1. **Image**: The default image is `agentcubicle`, built from `ghcr.io/anomalyco/opencode` with ~30 dev packages (via Alpine's `apk`) plus bash. Claude Code is added separately via `setup --claude`.
-2. **User & home vs. project**: Under Docker the container starts as root to create a `user` account matching your host UID/GID, copies tool config files into place, then drops privileges via `su`. Under rootless Podman there is no root phase: `--userns=keep-id` maps your host user directly onto the container's `user`, so files land owned by you without a remap (and `--security-opt label=disable` keeps SELinux hosts from relabeling your project). Either way, the container's `$HOME` (`/home/user`) is throwaway scratch space that's discarded when the container exits; it is *not* the same thing as your project. Your actual project directory is bind-mounted as a clearly separate child path, `/home/user/project`, so it's never ambiguous which files are ephemeral container state and which are your real, persisted work. Files created under `/home/user/project` are owned by you on the host.
+2. **User & home vs. project**: Under Docker the container starts as root to create a `user` account matching your host UID/GID, copies tool config files into place, then drops privileges via `su`. Under rootless Podman there is no root phase: `--userns=keep-id` maps your host user directly onto the container's `user`, so files land owned by you without a remap (and `--security-opt label=disable` keeps SELinux hosts from relabeling your project). Either way, the container's `$HOME` (`/home/user`) is throwaway scratch space that's discarded when the container exits (as is the container itself, unless you pass `--keep-container`); it is *not* the same thing as your project. Your actual project directory is bind-mounted as a clearly separate child path, `/home/user/project`, so it's never ambiguous which files are ephemeral container state and which are your real, persisted work. Files created under `/home/user/project` are owned by you on the host.
 3. **Mounts**:
    - The current working directory is mounted read-write at `/home/user/project` (also the container's working directory).
    - For `opencode`: `~/.config/opencode` is mounted read-only as the source for a config copy (at `/root/.config/opencode` under Docker; under Podman, where the unprivileged user cannot read `/root`, it is staged under `/home/user/.config-host/opencode` instead). Skipped when no opencode config exists.
@@ -406,6 +426,10 @@ agentcubicle commit --name ac-myproject-abc123
 
 # Interactive container selection for commit
 agentcubicle commit
+
+# Keep the container after the tool exits, so it can be committed afterwards
+agentcubicle claude --keep-container --name ac-myproject-abc123
+agentcubicle commit --name ac-myproject-abc123
 
 # Clean up stopped containers
 agentcubicle cleanup

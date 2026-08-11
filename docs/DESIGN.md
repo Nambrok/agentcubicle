@@ -384,6 +384,44 @@ to matter, the same pattern applies: point opencode's data/state dirs
 (via `XDG_DATA_HOME` / `XDG_STATE_HOME`, or bind mounts) at a location
 inside the project mount, never at host paths outside it.
 
+## Container lifetime: removed on exit
+
+Containers are started with `--rm`, so a run cleans up after itself.
+The alternative, which is what the script did originally, is to leave
+every exited container in place and rely on the user remembering to run
+`agentcubicle cleanup`; in practice they accumulate and take disk space.
+
+Removal is the default because the container holds nothing that is not
+already somewhere more durable. Files the user cares about are in the
+bind-mounted project directory, which is untouched by removing the
+container. Claude Code's per-project state lives in that same mount
+(see "Claude Code project state persistence" above) precisely so that it
+survives container recreation, which already happened on every run,
+since each run creates a new container rather than restarting the last
+one. What is left is the container's ephemeral `/home/user` (throwaway
+by design, see "Container `$HOME` vs. the project directory") and any packages
+installed during the session, which `commit` captures into the image.
+
+`--keep-container` opts out. Two things shaped how the opt-out works:
+
+- It is an explicit flag rather than something inferred from `--name`.
+  Naming a container could plausibly be read as intent to reuse it, but
+  `--name` has an unrelated everyday use: giving the container a fixed
+  name so `shell` and `commit` can address it during the session. Tying
+  lifetime to it would mean two rules to remember instead of one, and
+  would make the common case (a stable name for one session) silently
+  keep containers around again.
+- No exit-time warning is printed when a container that diverged from
+  its image is about to be removed. Detecting divergence cheaply and
+  accurately is not straightforward, and a warning on every run that
+  installed a package would be noise for the common case where the user
+  did not want to keep it anyway.
+
+The cost is that committing a container *after* it exits requires having
+decided to keep it before starting. Committing a still-running container
+from a second terminal, the interactive `commit` path, is unaffected,
+and that is the usual way it is done.
+
 ## Commits, not pushes
 
 The workflow this tool is designed for is commit-only inside the

@@ -73,6 +73,24 @@ jobs:
           # /home/user for podman).
           grep -q ci-marker-config cfgprobe.txt
 
+      # Containers are removed when the tool exits; --keep-container opts out.
+      - name: Assert container removal on exit
+        run: |
+          set -euxo pipefail
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          "$AGENTCUBICLE_ENGINE" rm -f ac-rmtest-default ac-rmtest-keep 2>/dev/null || true
+          # Default: nothing left behind.
+          AGENTCUBICLE_TEST_CMD='true' ./agentcubicle opencode --name ac-rmtest-default
+          left="$("$AGENTCUBICLE_ENGINE" ps -a --filter name=ac-rmtest-default --format '{{.Names}}')"
+          echo "after default run: [$left]"
+          test -z "$left"
+          # --keep-container: the container is still there afterwards.
+          AGENTCUBICLE_TEST_CMD='true' ./agentcubicle opencode --name ac-rmtest-keep --keep-container
+          kept="$("$AGENTCUBICLE_ENGINE" ps -a --filter name=ac-rmtest-keep --format '{{.Names}}')"
+          echo "after --keep-container run: [$kept]"
+          test "$kept" = ac-rmtest-keep
+          "$AGENTCUBICLE_ENGINE" rm -f ac-rmtest-keep
+
       # The claude settings.json in claude-home is seeded once, except for the
       # CLAUDE_PROPAGATE_KEYS allowlist, which is re-read from the host on every
       # run. Both the seed and the later overwrite are checked here, plus that
