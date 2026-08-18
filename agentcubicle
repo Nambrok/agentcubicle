@@ -417,6 +417,7 @@ RUN adduser -u 1000 -G user -D -h /home/user user 2>/dev/null || true
 RUN mkdir -p /usr/local/bin
 ENV PATH="/usr/local/bin:$PATH"
 ENV USE_BUILTIN_RIPGREP=0
+RUN set -eux; for i in 1 2 3; do ghver="$(curl -fsSL --max-time 30 https://api.github.com/repos/cli/cli/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)" && [ -n "$ghver" ] && break; sleep 5; done; case "$(uname -m)" in x86_64) gharch=amd64 ;; aarch64|arm64) gharch=arm64 ;; *) echo "agentcubicle: unsupported architecture $(uname -m) for the GitHub CLI" >/dev/stderr; exit 1 ;; esac; curl -fsSL --max-time 120 -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/${ghver}/gh_${ghver#v}_linux_${gharch}.tar.gz"; tar -xzf /tmp/gh.tgz -C /tmp; install -m 0755 "/tmp/gh_${ghver#v}_linux_${gharch}/bin/gh" /usr/local/bin/gh; rm -rf /tmp/gh.tgz "/tmp/gh_${ghver#v}_linux_${gharch}"; gh --version
 RUN if [ "$INSTALL_CLAUDE" = "true" ]; then su -s /bin/sh user -c 'export PATH="/home/user/.local/bin:$PATH" USE_BUILTIN_RIPGREP=0; curl -fsSL https://claude.ai/install.sh | bash'; fi
 EOF
     )
@@ -470,6 +471,15 @@ if [[ "$COMMAND" == "check" ]]; then
       MISSING=1
     fi
   done
+
+  # gh has no apk package, so it is not in REQUIRED_PACKAGES; it is installed
+  # from a release tarball to /usr/local/bin/gh (on PATH), checked like claude.
+  if $ENGINE run --entrypoint sh --rm "$IMAGE" -c "command -v gh >/dev/null" 2>/dev/null; then
+    _ok "gh"
+  else
+    _missing "gh"
+    MISSING=1
+  fi
 
   # Also check for claude (installed to /home/user/.local/bin/claude)
   if $ENGINE run --entrypoint sh --rm "$IMAGE" -c "test -x /home/user/.local/bin/claude" 2>/dev/null; then

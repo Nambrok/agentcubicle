@@ -316,7 +316,7 @@ The project name is derived from the current working directory basename, with no
 
 ## How it works
 
-1. **Image**: The default image is `agentcubicle`, built from `ghcr.io/anomalyco/opencode` with ~30 dev packages (via Alpine's `apk`) plus bash. Claude Code is added separately via `setup --claude`.
+1. **Image**: The default image is `agentcubicle`, built from `ghcr.io/anomalyco/opencode` with ~30 dev packages (via Alpine's `apk`) plus bash. GitHub CLI (`gh`) has no apk package, so it is installed instead from an official release tarball. Claude Code is added separately via `setup --claude`.
 2. **User & home vs. project**: Under Docker the container starts as root to create a `user` account matching your host UID/GID, copies tool config files into place, then drops privileges via `su`. Under rootless Podman there is no root phase: `--userns=keep-id` maps your host user directly onto the container's `user`, so files land owned by you without a remap (and `--security-opt label=disable` keeps SELinux hosts from relabeling your project). Either way, the container's `$HOME` (`/home/user`) is throwaway scratch space that's discarded when the container exits (as is the container itself, unless you pass `--keep-container`); it is *not* the same thing as your project. Your actual project directory is bind-mounted as a clearly separate child path, `/home/user/project`, so it's never ambiguous which files are ephemeral container state and which are your real, persisted work. Files created under `/home/user/project` are owned by you on the host.
 3. **Mounts**:
    - The current working directory is mounted read-write at `/home/user/project` (also the container's working directory).
@@ -355,13 +355,15 @@ The following packages are installed in the `agentcubicle` image:
 | **Editors**  | `vim`, `nano`                                                                                                                                                  |
 | **Compilers**| `gcc`, `g++`, `build-base` (make, etc.)                                                                                                                        |
 | **Debuggers**| `gdb`, `gdb-dashboard`, `cgdb`, `valgrind`, `strace`                                                                                                           |
-| **Git**      | `git`                                                                                                                                                          |
+| **Git**      | `git`, `gh`                                                                                                                                                    |
 | **CLI tools**| `bat`, `diffutils`, `file`, `fzf`, `jq`, `lsof`, `patch`, `perl`, `sqlite`, `shellcheck`, `tree`                                                              |
 | **Network**  | `curl`, `curlie`, `httpie`, `nmap`, `netcat-openbsd`, `tcpdump`, `wrk`                                                                                         |
 | **Languages**| `lua5.4`, `luajit`, `nodejs`, `python3`, `py3-pip`                                                                                                             |
 | **System**   | `htop`, `tmux`, `bash`                                                                                                                                         |
 | **Clipboard**| `wl-clipboard`, `xclip`                                                                                                                                        |
 | **AI tools** | `opencode` (from base image), `claude` (optional, installed via `setup --claude`)                                                                              |
+
+Everything above comes from Alpine's `apk`, except `gh` (no apk package exists for it, so it comes from an official release tarball) and `opencode`/`claude` (base image and the Claude installer, respectively).
 
 ## Examples
 
