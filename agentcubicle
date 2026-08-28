@@ -146,6 +146,7 @@ REQUIRED_PACKAGES=(
   "tcpdump"
   "tmux"
   "tree"
+  "uv:uvx"
   "valgrind"
   "vim"
   "wl-clipboard:wl-copy"

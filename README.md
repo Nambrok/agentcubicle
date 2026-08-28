@@ -358,7 +358,7 @@ The following packages are installed in the `agentcubicle` image:
 | **Git**      | `git`, `gh`                                                                                                                                                    |
 | **CLI tools**| `bat`, `diffutils`, `file`, `fzf`, `jq`, `lsof`, `patch`, `perl`, `sqlite`, `shellcheck`, `tree`                                                              |
 | **Network**  | `curl`, `curlie`, `httpie`, `nmap`, `netcat-openbsd`, `tcpdump`, `wrk`                                                                                         |
-| **Languages**| `lua5.4`, `luajit`, `nodejs`, `python3`, `py3-pip`                                                                                                             |
+| **Languages**| `lua5.4`, `luajit`, `nodejs`, `python3`, `py3-pip`, `uv`                                                                                                       |
 | **System**   | `htop`, `tmux`, `bash`                                                                                                                                         |
 | **Clipboard**| `wl-clipboard`, `xclip`                                                                                                                                        |
 | **AI tools** | `opencode` (from base image), `claude` (optional, installed via `setup --claude`)                                                                              |
