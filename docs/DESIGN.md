@@ -484,6 +484,61 @@ decided to keep it before starting. Committing a still-running container
 from a second terminal, the interactive `commit` path, is unaffected,
 and that is the usual way it is done.
 
+## Tool auto-updates are disabled in the container
+
+Both tools update themselves in the background. In a container that is
+removed on exit (see "Container lifetime: removed on exit" above), that
+update has nowhere to land: Claude Code installs the new build into
+`~/.local/share/claude/versions/` and re-points `~/.local/bin/claude` at
+it, both inside the container's throwaway `/home/user`, and both gone the
+moment the tool exits. The restart it then asks for cannot help either,
+since the tool runs via `exec` as a direct child of the entrypoint shell,
+so exiting it exits the container. Measured in a real session: an image
+built with `2.1.250` had fetched `2.1.272` (221MB) within minutes, and
+would have fetched it again on the next run, and the one after that.
+
+So the run path sets `DISABLE_AUTOUPDATER=1` for Claude Code, and the
+generated opencode config sets `autoupdate: false`. opencode would have
+failed at it anyway: its binary is root-owned in `/usr/local/bin` and the
+tool runs as the unprivileged user.
+
+Three details of how, rather than whether:
+
+- It is an environment variable on the run path, not a key written into
+  the seeded `claude-home/settings.json`. That file is persistent state
+  the user (and the agent) may edit, seeded once and never rewritten, so
+  writing into it would both mutate something owned by the user and miss
+  every project seeded before the change. The variable applies to every
+  container without touching any file.
+- The value is `${DISABLE_AUTOUPDATER:-1}`, expanded by the inner shell
+  after the `su` on the Docker path, so `--env DISABLE_AUTOUPDATER=0`
+  still wins and the escape hatch needs no extra code.
+- `DISABLE_AUTOUPDATER` rather than `DISABLE_UPDATES`: it stops the
+  background check while leaving a deliberate `claude update` inside a
+  container working. That update is still discarded on exit, but it is
+  the user asking for it, which is a different thing from the tool doing
+  it unbidden.
+
+The consequence is that the tool version is pinned by the image, and the
+image goes stale silently. That is why `check` reports versions for
+`claude`, `opencode` and `gh` rather than a bare tick: the refresh path is
+a host-side rebuild (`agentcubicle setup --clear --claude`), so the check
+has to be what makes staleness visible.
+
+Two alternatives were considered and rejected:
+
+- Persist `~/.local/share/claude/versions` on the host and install a
+  custom launcher at `~/.local/bin/claude` picking the newest version
+  found there (Claude Code leaves a launcher it did not create alone,
+  and keeps installing into `versions/`). Updates would then survive and
+  apply on the next run. It costs a new host-side state directory outside
+  the project, roughly 220MB per version kept with no pruning story, and
+  another uid-ownership question under rootless Podman.
+- Install Claude Code from Anthropic's Alpine `apk` repository, which
+  does not auto-update at all, instead of `install.sh`. That is a signing
+  key plus a repository line plus a different install path in the build,
+  for the same end state the environment variable already reaches.
+
 ## Commits, not pushes
 
 The workflow this tool is designed for is commit-only inside the

@@ -17,6 +17,7 @@ I'm sharing the result in case it's useful to anyone, but I don't make any promi
 - Commit-only workflow: agents can commit inside the container (and will usually ask first when they respect the default rules), but pushing/PRs are left to you on the host. `git` identity forwarding is an allowlist that deliberately skips `credential.helper`.
 - Starts every session in a read-only plan mode you manually escalate out of (`opencode --agent plan`; Claude `--permission-mode plan`).
 - Containers are removed when the tool exits, so they don't pile up on disk. Pass `--keep-container` to keep one around (to `commit` it afterwards, say).
+- Tool auto-updates are disabled inside the container: an update cannot outlive a container that is removed on exit, and the restart it asks for cannot happen. Tool versions come from the image and are refreshed by rebuilding it.
 - Minimal mounts: project dir (rw), plus tool config read-only (`~/.config/opencode` for opencode; only `~/.claude/settings.json` for Claude, never the OAuth/credentials files).
 - Files you create come out owned by you on the host: under Docker via a root-phase UID/GID remap, under rootless Podman via `--userns=keep-id`.
 - Runs on Docker or rootless Podman. The engine is auto-detected (Podman preferred when both are installed); set `AGENTCUBICLE_ENGINE=docker` or `=podman` to override.
@@ -203,6 +204,37 @@ The check only looks at that first word: an inline command can still call someth
 container does not have, and that is not detected. `jq`, `python3`, `awk` and the rest of
 the image's tooling are available.
 
+## Tool versions in the container
+
+Both tools ship their own background updater, and neither can work here. The container is
+removed when the tool exits, so a downloaded update is thrown away with it, and the tool
+runs via `exec` as a direct child of the entrypoint shell, so the restart it asks for has
+nothing to restart into. Left alone, Claude Code re-downloads the same ~220MB on every
+single run and then asks to be restarted.
+
+So `agentcubicle` turns both off inside the container:
+
+- Claude Code: `DISABLE_AUTOUPDATER=1` on the run path. This only stops the background
+  check, so `claude update` still works inside a container if you want a one-off (it is
+  discarded when the container exits, like any other change outside the project mount).
+  To get the old behaviour back for one run, pass `--env DISABLE_AUTOUPDATER=0`.
+- opencode: `"autoupdate": false` in the container-only config. Its binary is root-owned
+  and the tool runs unprivileged, so a self-update could not have succeeded anyway.
+
+The version you run is therefore the version the image was built with. `agentcubicle check`
+prints it for `claude`, `opencode` and `gh`. To refresh them, rebuild on the host:
+
+```sh
+agentcubicle setup --clear --claude
+```
+
+`--clear` is what makes this a rebuild: a plain `setup` over an existing image reports
+"Image is ready" and a plain `setup --claude` reports "Claude Code is already installed",
+neither of which re-runs an installer. Pass both flags together: `--clear` on its own
+rebuilds the image *without* Claude Code, and you would need a second `setup --claude` to
+put it back. `opencode` comes from the base image, so it is refreshed by the same rebuild
+pulling a newer base.
+
 ## Subcommands
 
 ### `setup`
@@ -218,7 +250,7 @@ Builds the `agentcubicle` image on top of `ghcr.io/anomalyco/opencode` with a fu
 
 ### `check`
 
-Inspects an image (default: `agentcubicle`) for all required tools plus the claude binary. Prints ✓/✗ for each package. Use `--img IMAGE` to check an arbitrary image.
+Inspects an image (default: `agentcubicle`) for all required tools plus the claude binary. Prints ✓/✗ for each package. `claude`, `opencode` and `gh` are reported with their version, since auto-updates are off inside the container (see [Tool versions in the container](#tool-versions-in-the-container)) and the image is what pins them. A missing `opencode` is reported but not treated as a failure: it comes from the base image, and `setup` cannot install it. Use `--img IMAGE` to check an arbitrary image.
 
 ```sh
 agentcubicle check
