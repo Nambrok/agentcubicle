@@ -221,6 +221,13 @@ _read_user_packages() {
 # image is built (first `setup`, or `setup --clear`), never as an update.
 USER_INSTALL_FILE="$USER_CONFIG_DIR/install.sh"
 
+# install.sh runs only when the image is built, so on an existing image it is
+# skipped; say so, since a plain `setup` otherwise gives no hint.
+_note_install_skipped() {
+  [[ -f "$USER_INSTALL_FILE" ]] || return 0
+  echo "Note: $USER_INSTALL_FILE only runs when the image is built; use 'setup --clear' to apply changes to it."
+}
+
 # Hash of the user's package names (order- and binary-independent), stored on
 # the image as a label so setup can tell when the list has changed. Empty when
 # there are no user packages, which matches images built before this existed.
@@ -444,9 +451,7 @@ if [[ "$COMMAND" == "setup" ]]; then
       if $HAS_CLAUDE; then
         echo "Claude Code is also installed."
       fi
-      if [[ -f "$USER_INSTALL_FILE" ]]; then
-        echo "Note: $USER_INSTALL_FILE only runs when the image is built; use 'setup --clear' to apply changes to it."
-      fi
+      _note_install_skipped
       exit 0
     fi
   else
@@ -547,6 +552,12 @@ EOF
     if $HAS_CLAUDE; then
       echo "Claude Code is already installed."
     fi
+  fi
+
+  # The image existed and was only updated on top (user packages and/or
+  # Claude): install.sh did not run.
+  if ! $NEEDS_BASE; then
+    _note_install_skipped
   fi
 
   exit 0
