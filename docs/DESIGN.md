@@ -154,6 +154,17 @@ Users can add Alpine packages through a project-local file,
   the image, because `apk del` in a new layer would not reclaim the space and
   could break things that came to depend on it. `setup --clear` is the way
   to drop one.
+- **`install.sh` for non-apk tools, untracked.** A shell script at
+  `.agentcubicle/install.sh` is passed to the build as a base64 build arg
+  (the build reads its Dockerfile from stdin, so there is no context for
+  `COPY`, and base64 avoids quoting problems) and run as root with
+  `sh -eux` as the last build step. It follows `gh`: root, installing into
+  `/usr/local/bin`. It gets no hash label, unlike `packages`: an arbitrary
+  script cannot be diffed or applied incrementally, and re-running it on top
+  of a previous layer would have to be idempotent. So it only runs on a
+  fresh build, and the user applies changes with `setup --clear`. `setup`
+  prints a reminder when the file exists and the image does not need
+  building. `check` cannot verify what it installed.
 
 ## Container engine (Docker and Podman)
 
