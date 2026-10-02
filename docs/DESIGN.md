@@ -125,18 +125,24 @@ host-only file.
 
 ## User-configured packages
 
-Users can add Alpine packages through a project-local file,
-`.agentcubicle/packages`.
+Users can add Alpine packages through a per-user file,
+`~/.config/agentcubicle/packages`, and other tools through
+`~/.config/agentcubicle/install.sh`.
 
-- **Project-local, not per-user.** Everything else agentcubicle reads or
-  writes for a project lives under `.agentcubicle/` (already excluded from
-  git), and there is no tool-level config in the home directory, so the list
-  follows that convention. What a project needs is also usually a property of
-  the project. The cost is that the image is still a single shared
-  `agentcubicle`: running `setup` in project B adds B's packages on top of
-  A's rather than giving each project its own image. That is harmless apart
-  from image size, and `setup --clear` starts over. Per-project images would
-  be the alternative if that ever matters.
+- **Per user, outside the project.** Both files live in
+  `~/.config/agentcubicle/`, not in `.agentcubicle/`. That directory is
+  bind-mounted into the container (the agent's rules, memory and Claude
+  state live there), so anything in it is editable by the agent. These files
+  decide what is installed into the image as root, and `install.sh` is
+  arbitrary code: a project-local copy would let the agent write a script
+  that runs as root on the host's next `setup`, outside the sandbox. The
+  host config directory is never mounted, so the agent cannot reach it. It
+  also matches the image, which is a single shared `agentcubicle` for all
+  projects: there is one list, so there is no "last project wins" ambiguity.
+  The path is fixed at `$HOME/.config/agentcubicle`, like the existing
+  `$HOME/.config/opencode` lookup, and `XDG_CONFIG_HOME` is not consulted.
+  Per-project lists would need a per-project image, which is not worth it
+  unless image size becomes a problem.
 - **Plain text, not JSON.** One entry per line, in the same `pkg` or
   `pkg:binary` form as the built-in list. It is easy to write by hand and
   needs no `jq`, which the image-building path does not otherwise depend on.
@@ -155,7 +161,7 @@ Users can add Alpine packages through a project-local file,
   could break things that came to depend on it. `setup --clear` is the way
   to drop one.
 - **`install.sh` for non-apk tools, untracked.** A shell script at
-  `.agentcubicle/install.sh` is passed to the build as a base64 build arg
+  `~/.config/agentcubicle/install.sh` is passed to the build as a base64 build arg
   (the build reads its Dockerfile from stdin, so there is no context for
   `COPY`, and base64 avoids quoting problems) and run as root with
   `sh -eux` as the last build step. It follows `gh`: root, installing into

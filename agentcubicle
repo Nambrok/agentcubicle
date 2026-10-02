@@ -188,10 +188,14 @@ _seed_if_absent() {
   [[ -f "$target" ]] || printf '%s\n' "$content" > "$target"
 }
 
-# Project-local list of extra Alpine packages to install into the image, one
-# per line, in the same "pkg" or "pkg:binary" form as REQUIRED_PACKAGES. Blank
-# lines and anything after a # are ignored.
-USER_PACKAGES_FILE="$WORKDIR/.agentcubicle/packages"
+# Per-user list of extra Alpine packages to install into the image, one per
+# line, in the same "pkg" or "pkg:binary" form as REQUIRED_PACKAGES. Blank
+# lines and anything after a # are ignored. It lives in the host config
+# directory, not in the project: .agentcubicle/ is mounted into the container,
+# and these files drive root-level changes to the image, so the agent must not
+# be able to edit them.
+USER_CONFIG_DIR="$HOME/.config/agentcubicle"
+USER_PACKAGES_FILE="$USER_CONFIG_DIR/packages"
 USER_PACKAGES=()
 
 _read_user_packages() {
@@ -215,7 +219,7 @@ _read_user_packages() {
 # Optional shell script run as root at the end of a fresh image build, for
 # tools that are not Alpine packages. It is not tracked: it only runs when the
 # image is built (first `setup`, or `setup --clear`), never as an update.
-USER_INSTALL_FILE="$WORKDIR/.agentcubicle/install.sh"
+USER_INSTALL_FILE="$USER_CONFIG_DIR/install.sh"
 
 # Hash of the user's package names (order- and binary-independent), stored on
 # the image as a label so setup can tell when the list has changed. Empty when

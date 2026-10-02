@@ -316,7 +316,7 @@ The project name is derived from the current working directory basename, with no
 
 ## How it works
 
-1. **Image**: The default image is `agentcubicle`, built from `ghcr.io/anomalyco/opencode` with ~30 dev packages (via Alpine's `apk`) plus bash. GitHub CLI (`gh`) has no apk package, so it is installed instead from an official release tarball. Claude Code is added separately via `setup --claude`. Packages you list in `.agentcubicle/packages` are installed too (see "Extra packages").
+1. **Image**: The default image is `agentcubicle`, built from `ghcr.io/anomalyco/opencode` with ~30 dev packages (via Alpine's `apk`) plus bash. GitHub CLI (`gh`) has no apk package, so it is installed instead from an official release tarball. Claude Code is added separately via `setup --claude`. Packages you list in `~/.config/agentcubicle/packages` are installed too (see "Extra packages").
 2. **User & home vs. project**: Under Docker the container starts as root to create a `user` account matching your host UID/GID, copies tool config files into place, then drops privileges via `su`. Under rootless Podman there is no root phase: `--userns=keep-id` maps your host user directly onto the container's `user`, so files land owned by you without a remap (and `--security-opt label=disable` keeps SELinux hosts from relabeling your project). Either way, the container's `$HOME` (`/home/user`) is throwaway scratch space that's discarded when the container exits (as is the container itself, unless you pass `--keep-container`); it is *not* the same thing as your project. Your actual project directory is bind-mounted as a clearly separate child path, `/home/user/project`, so it's never ambiguous which files are ephemeral container state and which are your real, persisted work. Files created under `/home/user/project` are owned by you on the host.
 3. **Mounts**:
    - The current working directory is mounted read-write at `/home/user/project` (also the container's working directory).
@@ -367,9 +367,11 @@ Everything above comes from Alpine's `apk`, except `gh` (no apk package exists f
 
 ## Extra packages
 
-To add your own packages to the image, list them in `.agentcubicle/packages`
-in your project directory, one per line. Like the rest of `.agentcubicle/`, the
-file is local to your machine and kept out of git:
+To add your own packages to the image, list them in
+`~/.config/agentcubicle/packages`, one per line. The file belongs to you, not to
+a project: it applies to every project, and it is deliberately outside
+`.agentcubicle/`, which is mounted into the container, so the agent cannot edit
+what gets installed into the image as root:
 
 ```
 # Anything after a # is a comment
@@ -380,20 +382,18 @@ postgresql-client:psql   # "package:binary" lets `check` verify the binary
 Names are Alpine `apk` packages. An invalid line is skipped with a warning, and
 a name `apk` does not know makes `agentcubicle setup` fail and point at this file.
 
-Run `agentcubicle setup` from the project directory after editing the file. If the image already exists,
+Run `agentcubicle setup` after editing the file. If the image already exists,
 only the changed package list is installed on top of it; nothing is rebuilt from
 scratch. `agentcubicle check` reports these packages too, marked `(user)`.
 Removing a line does not uninstall the package from an existing image: run
 `agentcubicle setup --clear` to rebuild without it.
 
-The image is shared by all your projects, so the list of whichever project you
-last ran `setup` in is what the image was last updated for. Packages from other
-projects stay installed until `setup --clear`.
+The image and the list are both shared by all your projects.
 
 ### Tools that are not Alpine packages
 
 For anything `apk` does not carry (a release tarball, a `curl | sh` installer),
-put a shell script in `.agentcubicle/install.sh`. It runs as root, with
+put a shell script in `~/.config/agentcubicle/install.sh`. It runs as root, with
 `sh -eux`, at the end of the image build, after the packages and `gh`, so a
 failing command fails `setup`. Follow what `gh` does and install into
 `/usr/local/bin`, which is on the PATH. For something that belongs in the
@@ -401,7 +401,7 @@ user's home, drop privileges as the Claude install does:
 `su -s /bin/sh user -c '...'`.
 
 ```sh
-# .agentcubicle/install.sh
+# ~/.config/agentcubicle/install.sh
 curl -fsSL https://example.com/tool.tgz | tar -xz -C /usr/local/bin tool
 ```
 

@@ -38,13 +38,13 @@ jobs:
       - name: Build image
         run: ./agentcubicle setup
 
-      # The project-local package list is installed on a fresh build, and a later
+      # The per-user package list is installed on a fresh build, and a later
       # edit is applied to the existing image as a thin layer.
       - name: Assert user packages are installed and updated
         run: |
           set -euxo pipefail
-          mkdir -p .agentcubicle
-          pkgfile=.agentcubicle/packages
+          mkdir -p "$HOME/.config/agentcubicle"
+          pkgfile="$HOME/.config/agentcubicle/packages"
           # figlet is not in the default package set.
           printf '# comment\n\nfiglet:figlet  # trailing comment\n' > "$pkgfile"
           ./agentcubicle setup > setup-out.txt
