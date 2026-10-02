@@ -123,6 +123,38 @@ first-word test is a heuristic and knows nothing about what an inline
 command calls: `python3 -c ...` passes even if the script it runs needs a
 host-only file.
 
+## User-configured packages
+
+Users can add Alpine packages through a project-local file,
+`.agentcubicle/packages`.
+
+- **Project-local, not per-user.** Everything else agentcubicle reads or
+  writes for a project lives under `.agentcubicle/` (already excluded from
+  git), and there is no tool-level config in the home directory, so the list
+  follows that convention. What a project needs is also usually a property of
+  the project. The cost is that the image is still a single shared
+  `agentcubicle`: running `setup` in project B adds B's packages on top of
+  A's rather than giving each project its own image. That is harmless apart
+  from image size, and `setup --clear` starts over. Per-project images would
+  be the alternative if that ever matters.
+- **Plain text, not JSON.** One entry per line, in the same `pkg` or
+  `pkg:binary` form as the built-in list. It is easy to write by hand and
+  needs no `jq`, which the image-building path does not otherwise depend on.
+  Entries are validated against a strict name pattern because they end up
+  in a Dockerfile `RUN` line.
+- **A hash label, not a rebuild.** `setup` used to exit as soon as the image
+  existed, so an edited list would never have taken effect without
+  `setup --clear` and a full rebuild. Instead, the image carries an
+  `agentcubicle.user-packages` label holding a hash of the sorted package
+  names. When it differs from the current file, `setup` builds a thin layer
+  on top of the existing image, as `--claude` does, rather than starting
+  over. An absent label equals an empty list, so existing images are not
+  rebuilt by the upgrade.
+- **Removal is not incremental.** A package deleted from the file stays in
+  the image, because `apk del` in a new layer would not reclaim the space and
+  could break things that came to depend on it. `setup --clear` is the way
+  to drop one.
+
 ## Container engine (Docker and Podman)
 
 The engine is chosen once at startup: `AGENTCUBICLE_ENGINE` if set, otherwise
