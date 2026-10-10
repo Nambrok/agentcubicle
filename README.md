@@ -129,25 +129,30 @@ If your config has no `provider` section at all, `agentcubicle opencode` prints 
 
 The container never receives your host's live Claude Code credentials: only `~/.claude/settings.json` itself is ever mounted read-only and copied out (see "How it works" below). If you already have a static token at `~/.claude/oauth-token` (or exported as `CLAUDE_CODE_OAUTH_TOKEN`, or an `ANTHROPIC_API_KEY` passed with `--env`), there's nothing to do here: `agentcubicle claude` auto-detects and forwards it for you automatically, no bootstrap needed.
 
-If none of those are found, `agentcubicle claude` detects this itself and runs the bootstrap below for you automatically instead of starting a normal session that would just hit a login wall: it runs `claude setup-token` directly, then prints exactly what to do with the resulting token and drops you into a shell to do it. You do not need to remember these steps; just run `agentcubicle claude` and follow along. They are spelled out here for reference, and for doing it manually if you ever want to:
+If none of those are found, `agentcubicle claude` detects this itself and, instead of starting a normal session that would just hit a login wall, runs a token bootstrap:
 
 1. Build the image if you haven't yet: `agentcubicle setup --claude`
-2. Start an interactive container: `agentcubicle claude`
-3. Inside the container, generate a long-lived token: `claude setup-token`
-   - This prints a URL. Open it in a browser, log into your Claude account, and authorize.
-   - It then prints a token string. This only exists in the container's throwaway home directory, and will **not** survive the container exiting unless you save it yourself.
-4. Save the token into the bind-mounted project directory so it survives the container exiting, e.g.:
-   ```sh
-   echo "<paste the printed token>" > /home/user/project/.claude-oauth-token
-   ```
-5. Exit the container (`exit` or Ctrl-D). The token is now saved under the bind-mounted project directory, so this throwaway container has served its purpose and can be discarded.
-6. On the host, move the token out of the project directory and into its permanent location:
-   ```sh
-   mkdir -p ~/.claude
-   mv .claude-oauth-token ~/.claude/oauth-token
-   chmod 600 ~/.claude/oauth-token
-   ```
-7. Start a fresh container to confirm it worked: `agentcubicle claude` again. If it starts straight into a session with no login prompt, the token is being picked up correctly. From now on, plain `agentcubicle claude` just works, no `--env` needed. (You can still pass `--env CLAUDE_CODE_OAUTH_TOKEN=...` explicitly to override with a different token for one run.)
+2. Run `agentcubicle claude`. The container runs `claude setup-token`, which prints a URL.
+3. Open the URL in a browser, log into your Claude account, and authorize. The browser session decides which account the token belongs to, so use a private window if you are logged into a different account there.
+4. `claude setup-token` prints a long-lived token. Paste it at the prompt that follows (input is hidden) and press Enter.
+5. The container exits, and agentcubicle saves the token on the host to `~/.claude/oauth-token` (mode 600). The container never has write access to `~/.claude`: the token passes through a temporary file in the project's `.agentcubicle/` directory, which is moved into place and removed once the container exits.
+6. Run `agentcubicle claude` again. It starts straight into a session; from now on, plain `agentcubicle claude` picks the token up with no `--env` needed. (You can still pass `--env CLAUDE_CODE_OAUTH_TOKEN=...` explicitly to override it for one run.)
+
+If you press Enter without pasting anything, the bootstrap prints the manual steps instead and leaves you in a shell to do them: write the token into the bind-mounted project directory (`echo "<token>" > /home/user/project/.claude-oauth-token`), exit, then on the host `mkdir -p ~/.claude && mv .claude-oauth-token ~/.claude/oauth-token && chmod 600 ~/.claude/oauth-token`.
+
+To replace a token (expired, revoked, or for a different account), delete the file and run `agentcubicle claude` again.
+
+### Using another Claude account
+
+`--account NAME` selects a different token file, `~/.claude/oauth-token-NAME`, so you can keep several accounts side by side and choose one when the container starts:
+
+```sh
+agentcubicle claude --account perso   # first run: token bootstrap, saved to ~/.claude/oauth-token-perso
+agentcubicle claude --account perso   # later runs: session with that account
+agentcubicle claude                   # unchanged: ~/.claude/oauth-token
+```
+
+With `--account`, only that account's file is used: a `CLAUDE_CODE_OAUTH_TOKEN` exported in your shell is ignored, so it can't silently replace the account you named. An explicit `--env CLAUDE_CODE_OAUTH_TOKEN=...` still wins. Names may only contain letters, digits, `-` and `_`. The account only changes which token is forwarded: the project's `.agentcubicle/claude-home/` (settings, memory, transcripts) is the same whichever account you use.
 
 Why a static token instead of just logging in fresh each time: normal OAuth credentials refresh via a single-use, rotating refresh token, and copying or read-only-mounting that file into containers breaks the moment any container (or the host) refreshes it, invalidating the others. `claude setup-token` produces a long-lived (about a year), non-rotating token instead, so the same one can be reused across many container runs. If you'd rather use API-key billing instead of your subscription, use `--env ANTHROPIC_API_KEY="$(cat ~/.claude-key)"` instead (see the `claude code` examples below). No token bootstrap needed for that path.
 
@@ -318,6 +323,7 @@ If no subcommand is given, a new container is started based on `agentcubicle` wi
 | `--mount P` | Extra mount, e.g. `--mount /etc/ssh:/etc/ssh:ro`. Repeatable.  |
 | `--env E`   | Extra env var, e.g. `--env ANTHROPIC_API_KEY="sk-ant-..."`. Repeatable. |
 | `--keep-container` | Keep the container after the tool exits. Without it, the container is removed on exit. |
+| `--account A` | `claude` only: use the token in `~/.claude/oauth-token-A` instead of `~/.claude/oauth-token` (see [Using another Claude account](#using-another-claude-account)). |
 | `--`        | Pass remaining arguments directly to the tool                  |
 
 ### Container lifetime

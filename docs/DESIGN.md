@@ -352,8 +352,27 @@ user automatically, explains what's happening immediately before the
 authorization URL is printed (not only once, earlier, on the host side,
 where an explanation would scroll away from the actual link by the time
 docker finishes starting the container), then tells the user exactly
-what to do with the resulting token and drops them into an interactive
-shell to do it, rather than exiting the container out from under them.
+asks them to paste the printed token.
+
+The pasted token reaches the host through a pending file in the project
+mount (`.agentcubicle/.oauth-token-pending`, written with umask 077),
+which the host side moves to the token file with mode 600 once the
+container exits. This keeps `~/.claude` out of the container entirely,
+writable or not; the alternative of mounting it read-write would expose
+`.credentials.json` again. The move runs from an EXIT trap so it still
+happens when the engine exits non-zero, and any pending file is removed
+both before the run and after it. If nothing is pasted, the bootstrap
+falls back to printing the manual save steps and drops into an
+interactive shell to do them, rather than exiting the container out
+from under the user.
+
+`--account NAME` swaps the token file for `~/.claude/oauth-token-NAME`,
+which is the whole of multi-account support: the forwarded token is the
+only thing that ties a container to an account. With `--account`, a
+host-exported `CLAUDE_CODE_OAUTH_TOKEN` is ignored, because it most
+likely belongs to the default account and would otherwise silently win
+over the account the user explicitly named (and keep the bootstrap from
+running for a new one). An explicit `--env` still takes precedence.
 
 The config mount backing `settings.json` is scoped to that single file,
 not the whole `~/.claude` directory. Mounting the whole directory only
