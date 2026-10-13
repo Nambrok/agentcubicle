@@ -225,6 +225,30 @@ name of the host directory you ran it from, which a status line can fall back on
 
 The variable is set for both tools, and `--env AGENTCUBICLE_PROJECT_NAME=...` overrides it.
 
+### Optional: a fuller example status line
+
+Nothing in `agentcubicle` depends on this. It is one status line you can copy into your
+host `~/.claude/settings.json` if you want it. It needs only `jq`, so the same value works
+on the host and in the container. It shows the project name (the repo name, falling back
+to `AGENTCUBICLE_PROJECT_NAME`), the model, context usage, and the 5-hour and 7-day rate
+limit usage:
+
+```text
+myproject [Opus 5.5] Context: 23% (234k/1000k) | 5h: 12% | 7d: 41%
+```
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "jq -r 'def k: (./1000) as $v | if $v == ($v|floor) then \"\\($v|floor)k\" else \"\\(($v*10|round)/10)k\" end; def pct($l): if . == null then \"\\($l): n/a\" else \"\\($l): \\(round)%\" end; def seg($f): (. // \"\") | if . == \"\" then \"\" else $f end; ((.workspace.repo.name // \"\" | if . == \"\" then (env.AGENTCUBICLE_PROJECT_NAME // \"\") else . end) | seg(. + \" \")) + ((.model.display_name) | seg(\"[\" + . + \"] \")) + (if .context_window.used_percentage == null then \"Context: n/a\" else \"Context: \\(.context_window.used_percentage|round)%\" + (if .context_window.total_input_tokens != null and .context_window.context_window_size != null then \" (\\(.context_window.total_input_tokens|k)/\\(.context_window.context_window_size|k))\" else \"\" end) end) + \" | \" + (.rate_limits.five_hour.used_percentage | pct(\"5h\")) + \" | \" + (.rate_limits.seven_day.used_percentage | pct(\"7d\"))'"
+  }
+}
+```
+
+A segment whose data Claude Code does not provide reads `n/a`, and the project name is
+left out when there is neither a repo name nor the variable (on the host, outside a repo).
+
 ## Tool versions in the container
 
 Both tools ship their own background updater, and neither can work here. The container is
