@@ -209,6 +209,22 @@ The check only looks at that first word: an inline command can still call someth
 container does not have, and that is not detected. `jq`, `python3`, `awk` and the rest of
 the image's tooling are available.
 
+Inside the container the project is always mounted at `/home/user/project`, so
+`.workspace.current_dir` reads the same for every project, and a project that is not a git
+repo has no `.workspace.repo.name`. `agentcubicle` sets `AGENTCUBICLE_PROJECT_NAME` to the
+name of the host directory you ran it from, which a status line can fall back on:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "jq -r '(.workspace.repo.name // \"\" | if . == \"\" then (env.AGENTCUBICLE_PROJECT_NAME // \"\") else . end) + \" [\\(.model.display_name)]\"'"
+  }
+}
+```
+
+The variable is set for both tools, and `--env AGENTCUBICLE_PROJECT_NAME=...` overrides it.
+
 ## Tool versions in the container
 
 Both tools ship their own background updater, and neither can work here. The container is

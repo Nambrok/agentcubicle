@@ -1191,6 +1191,21 @@ if [[ "$TOOL" == "claude" ]]; then
   done
 fi
 
+# The project is always mounted at the same container path, so a status line
+# or script inside the container cannot tell projects apart by directory name
+# (and a non-git project has no repo name either). Expose the host directory
+# name, unless the caller set it explicitly via --env.
+HAS_EXPLICIT_PROJECT_NAME=false
+for env_entry in "${EXTRA_ENVS[@]+"${EXTRA_ENVS[@]}"}"; do
+  if [[ "$env_entry" == AGENTCUBICLE_PROJECT_NAME || "$env_entry" == AGENTCUBICLE_PROJECT_NAME=* ]]; then
+    HAS_EXPLICIT_PROJECT_NAME=true
+    break
+  fi
+done
+if ! $HAS_EXPLICIT_PROJECT_NAME; then
+  EXTRA_ENVS+=("-e" "AGENTCUBICLE_PROJECT_NAME=$(basename "$WORKDIR")")
+fi
+
 if [[ -n "$HOST_GITCONFIG_B64" ]]; then
   EXTRA_ENVS+=("-e" "HOST_GITCONFIG_B64=$HOST_GITCONFIG_B64")
 fi

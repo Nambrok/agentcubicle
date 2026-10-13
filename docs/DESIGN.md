@@ -36,6 +36,16 @@ written under `$HOME`) and for the mount-narrowing decisions below
 (scoping recursive operations like `chown -R` to skip the project mount
 relies on it being a clearly separate subtree).
 
+A side effect of the fixed mount path is that every project looks like a
+directory named `project` from inside the container, and a project that is
+not a git repo has no repo name either. Only the host knows the real name,
+so the script passes `basename` of the host working directory as
+`AGENTCUBICLE_PROJECT_NAME` (for both tools, through the same `EXTRA_ENVS`
+list as everything else, so it reaches both engine paths without touching
+the single-quoted entrypoint). The main consumer is a propagated
+`statusLine` command. An explicit `--env AGENTCUBICLE_PROJECT_NAME=...`
+wins.
+
 ## Claude Code project state persistence
 
 Claude Code normally keeps per-project memory, transcripts, and
