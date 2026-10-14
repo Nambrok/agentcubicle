@@ -1660,7 +1660,10 @@ $ENGINE run ${RUN_TTY_ARGS[@]+"${RUN_TTY_ARGS[@]}"} ${RUN_RM_ARGS[@]+"${RUN_RM_A
    find /home/user -mindepth 1 -maxdepth 1 ! -name project ! -name .Xauthority -exec chown -R $HOST_UID:$HOST_GID {} +
     export HOME=/home/user
     CMD=$(echo "$INNER_B64" | base64 -d)
-    exec su -s /bin/sh -c "export PATH=\"/home/user/.local/bin:\$PATH\"; $CMD" user _ "$@"' \
+    # su is BusyBox on musl, whose option parser keeps going after the user
+    # name: without the --, tool args such as --help or claude -c would be
+    # taken as su options.
+    exec su -s /bin/sh -c "export PATH=\"/home/user/.local/bin:\$PATH\"; $CMD" -- user _ "$@"' \
   _ ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 fi
 

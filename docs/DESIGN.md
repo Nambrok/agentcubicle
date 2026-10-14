@@ -148,7 +148,13 @@ variable. Two engine differences drive the rest:
   which maps your host user straight onto the image's `user` (UID 1000), and
   the process runs as that user directly, with no root phase, `usermod`, or
   `chown`. Bind-mounted writes then land owned by you on the host in both
-  models, by opposite mechanisms.
+  models, by opposite mechanisms. The `su` call ends its own options with
+  `--` before the user name: the image's `su` is BusyBox on musl, whose
+  option parser keeps reading options after operands, so without it any
+  tool argument shaped like a `su` option was taken by `su` (`--help`
+  failed with a `su` error, and Claude's `-c` would have replaced the
+  command `su` runs). The Podman path starts the tool with `sh -c`, so it
+  never had this problem.
 - **Config staging.** The Docker path reads host config from under `/root`
   (it is root at that point). The unprivileged Podman process cannot read
   `/root`, so config is staged read-only under `/home/user/.config-host/...`
