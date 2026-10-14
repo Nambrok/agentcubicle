@@ -11,7 +11,8 @@
 #   agentcubicle shell [--name NAME]                     # Shell into running container
 #   agentcubicle commit [--name NAME]                     # Commit running container
 #   agentcubicle cleanup                                  # Remove stopped containers
-#   agentcubicle <opencode|claude> [--mount MOUNT] [--env ENV] [--img IMAGE] [--name NAME] [--keep-container] [--] [tool args...]
+#   agentcubicle share <create NAME|list|rm NAME>         # Manage named shares (host dirs)
+#   agentcubicle <opencode|claude> [--mount MOUNT] [--share NAME[:ro|:rw]] [--env ENV] [--img IMAGE] [--name NAME] [--keep-container] [--] [tool args...]
 #   agentcubicle claude [--account NAME] [...]           # Use ~/.claude/oauth-token-NAME instead of ~/.claude/oauth-token
 #
 # Examples:
@@ -32,6 +33,9 @@
 #   agentcubicle claude --account perso
 #   agentcubicle claude --env ANTHROPIC_API_KEY="$(cat ~/.claude-key)"
 #   agentcubicle opencode --mount /etc/ssh:/etc/ssh:ro
+#   agentcubicle share create xchg
+#   agentcubicle claude --share xchg
+#   agentcubicle opencode --share xchg:ro
 #   agentcubicle claude -- --model sonnet
 
 set -euo pipefail
@@ -87,6 +91,73 @@ TOOL=""
 CMD_NAME=""
 KEEP_CONTAINER=false
 ACCOUNT=""
+
+# Named shares: plain host directories under one fixed root, mounted into the
+# containers that opt in with --share NAME[:ro|:rw] at /shares/NAME. They live
+# outside any project and are mounted outside /home/user, so neither the repo
+# nor the root-phase chown of the home ever touches them. See docs/DESIGN.md,
+# "Named shares".
+SHARES_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/agentcubicle/shares"
+CONTAINER_SHARES_DIR="/shares"
+# Claude Code only reads outside its working directory with a permission
+# prompt, so each enabled share is also passed as --add-dir (built below).
+CLAUDE_ADD_DIRS=""
+
+_validate_share_name() {
+  if [[ ! "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "Error: invalid share name '$1'. Use letters, digits, '.', '_' and '-', starting with a letter or digit." >&2
+    exit 1
+  fi
+}
+
+# `share` only manages host directories, so it is handled here, before engine
+# detection, and works without docker or podman installed.
+if [[ "${1:-}" == "share" ]]; then
+  SHARE_USAGE="Usage: agentcubicle share <create NAME|list|rm NAME>"
+  case "${2:-}" in
+    create)
+      [[ $# -eq 3 ]] || { echo "$SHARE_USAGE" >&2; exit 1; }
+      _validate_share_name "$3"
+      mkdir -p "$SHARES_ROOT/$3"
+      echo "Share '$3' is at $SHARES_ROOT/$3"
+      echo "Enable it with: agentcubicle <opencode|claude> --share $3 (or --share $3:ro)"
+      ;;
+    list)
+      [[ $# -eq 2 ]] || { echo "$SHARE_USAGE" >&2; exit 1; }
+      FOUND_SHARE=false
+      if [[ -d "$SHARES_ROOT" ]]; then
+        for SHARE_DIR in "$SHARES_ROOT"/*/; do
+          [[ -d "$SHARE_DIR" ]] || continue
+          SHARE_DIR="${SHARE_DIR%/}"
+          printf '%s\t%s\n' "${SHARE_DIR##*/}" "$SHARE_DIR"
+          FOUND_SHARE=true
+        done
+      fi
+      $FOUND_SHARE || echo "No shares under $SHARES_ROOT"
+      ;;
+    rm)
+      [[ $# -eq 3 ]] || { echo "$SHARE_USAGE" >&2; exit 1; }
+      _validate_share_name "$3"
+      if [[ ! -d "$SHARES_ROOT/$3" ]]; then
+        echo "Error: no share named '$3' under $SHARES_ROOT." >&2
+        exit 1
+      fi
+      # rmdir only: the script never deletes share contents recursively.
+      if [[ -n "$(ls -A "$SHARES_ROOT/$3")" ]]; then
+        echo "Error: share '$3' is not empty. Delete its contents yourself first:" >&2
+        echo "  $SHARES_ROOT/$3" >&2
+        exit 1
+      fi
+      rmdir "$SHARES_ROOT/$3"
+      echo "Removed share '$3'."
+      ;;
+    *)
+      echo "$SHARE_USAGE" >&2
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
 
 # Container engine: honor AGENTCUBICLE_ENGINE if set, otherwise auto-detect,
 # preferring podman when both are installed.
@@ -303,6 +374,7 @@ if [[ -z "$COMMAND" ]]; then
     echo "       agentcubicle shell [--name NAME]"
     echo "       agentcubicle commit [--name NAME]"
     echo "       agentcubicle cleanup"
+    echo "       agentcubicle share <create NAME|list|rm NAME>"
     exit 1
   fi
 
@@ -333,6 +405,31 @@ if [[ -z "$COMMAND" ]]; then
         ;;
       --mount)
         EXTRA_MOUNTS+=("-v" "$2")
+        shift 2
+        ;;
+      --share)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          echo "Error: --share needs NAME, NAME:ro or NAME:rw." >&2
+          exit 1
+        fi
+        SHARE_NAME="${2%%:*}"
+        SHARE_MODE=rw
+        if [[ "$2" == *:* ]]; then
+          SHARE_MODE="${2#*:}"
+        fi
+        if [[ "$SHARE_MODE" != ro && "$SHARE_MODE" != rw ]]; then
+          echo "Error: --share mode must be ro or rw, got '$SHARE_MODE'." >&2
+          exit 1
+        fi
+        _validate_share_name "$SHARE_NAME"
+        # No auto-create: a typo should fail, not mount a fresh empty share.
+        if [[ ! -d "$SHARES_ROOT/$SHARE_NAME" ]]; then
+          echo "Error: no share named '$SHARE_NAME' under $SHARES_ROOT." >&2
+          echo "Create it with: agentcubicle share create $SHARE_NAME" >&2
+          exit 1
+        fi
+        EXTRA_MOUNTS+=("-v" "$SHARES_ROOT/$SHARE_NAME:$CONTAINER_SHARES_DIR/$SHARE_NAME:$SHARE_MODE")
+        CLAUDE_ADD_DIRS+=" $CONTAINER_SHARES_DIR/$SHARE_NAME"
         shift 2
         ;;
       --env)
@@ -1258,10 +1355,21 @@ CLAUDE_RUN_DISPLAY="agentcubicle claude${ACCOUNT:+ --account $ACCOUNT}"
 CLAUDE_TOKEN_PENDING_REL=".agentcubicle/.oauth-token-pending"
 CLAUDE_TOKEN_PENDING_IN_CONTAINER="$CONTAINER_PROJECT_DIR/$CLAUDE_TOKEN_PENDING_REL"
 
+# --add-dir takes a variable number of directories and would swallow a
+# positional argument right after it (the kickoff prompt, when no tool args
+# are given), so it goes first, ended by --permission-mode. Share names are
+# validated, so the paths need no quoting. opencode needs no equivalent: the
+# blanket "*": "allow" in OPENCODE_CONFIG_CONTENT comes after its built-in
+# external_directory "ask" rule, and its permissions are last-match-wins.
+CLAUDE_ADD_DIR_ARGS=""
+if [[ -n "$CLAUDE_ADD_DIRS" ]]; then
+  CLAUDE_ADD_DIR_ARGS="--add-dir$CLAUDE_ADD_DIRS "
+fi
+
 if [[ "$TOOL" == "opencode" ]]; then
   INNER_CMD="$GIT_SETUP export OPENCODE_CONFIG_CONTENT='$OPENCODE_CONFIG_JSON'; exec opencode --agent plan --prompt '$KICKOFF_PROMPT' \"\$@\""
 elif $CLAUDE_HAS_CREDENTIALS; then
-  INNER_CMD="$GIT_SETUP$CLAUDE_ENV_SETUP export CLAUDE_CONFIG_DIR=$CONTAINER_PROJECT_DIR/.agentcubicle/claude-home; exec claude --permission-mode plan \"\$@\" '$KICKOFF_PROMPT'"
+  INNER_CMD="$GIT_SETUP$CLAUDE_ENV_SETUP export CLAUDE_CONFIG_DIR=$CONTAINER_PROJECT_DIR/.agentcubicle/claude-home; exec claude $CLAUDE_ADD_DIR_ARGS--permission-mode plan \"\$@\" '$KICKOFF_PROMPT'"
 else
   # No credentials detected on the host. Instead of starting a normal
   # session (which would just hit a login wall), run `claude setup-token`

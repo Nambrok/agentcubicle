@@ -568,6 +568,59 @@ Two alternatives were considered and rejected:
   key plus a repository line plus a different install path in the build,
   for the same end state the environment variable already reaches.
 
+## Named shares
+
+Some workflows need two containers (usually two projects) to exchange
+files under the user's control. `--mount` could already do it, but with
+two traps: a target under `/home/user` is caught by the Docker root
+phase's recursive `chown` of the home (which also errors on a read-only
+mount), and a named engine volume starts root-owned, so the unprivileged
+user cannot write to it.
+
+A share is a plain host directory under one fixed root,
+`${XDG_DATA_HOME:-$HOME/.local/share}/agentcubicle/shares/NAME`, managed
+with `agentcubicle share create|list|rm`, and enabled per container with
+`--share NAME[:ro|:rw]`, which mounts it at `/shares/NAME`.
+
+- **Fixed location, no registry.** Defining a share is creating a
+  directory; the name alone locates it. A registry file mapping names to
+  arbitrary paths would add the script's first config file for little
+  gain, since `--mount` already covers arbitrary paths.
+- **Host directory, not an engine volume.** The user can inspect it from
+  the host, it survives image and engine resets, and ownership comes out
+  right on both engines with no extra step: Docker remaps the container
+  user to the host UID, Podman maps it with `keep-id`.
+- **Mounted at `/shares`, not inside the project or the home.** A target
+  inside the project bind mount makes the engine create an empty
+  mountpoint directory in the host project tree (root-owned under
+  rootful Docker), and a target under `/home/user` gets the recursive
+  `chown`. `/shares` avoids both.
+- **Access control is the mount mode only.** Both containers run as the
+  same host user, so ownership cannot separate them; `:ro` per container
+  is what decides who writes.
+- **`--share` never creates a share, and `share rm` never deletes
+  contents.** A typo in `--share` fails instead of silently mounting a
+  fresh empty directory, and removing data stays a deliberate step the
+  user takes on the host.
+- **Access outside the working directory.** Mounting outside the
+  project means the tools see shares as external paths. Claude Code
+  asks before touching files outside its working directories, so each
+  enabled share is passed as `--add-dir /shares/NAME`. `--add-dir` takes
+  a variable number of values and would swallow the kickoff prompt if it
+  came right before it (checked against the real binary: `claude
+  --add-dir /tmp hello -p` reads `hello` as a directory), so it is placed
+  first, ended by `--permission-mode`. Claude Code does not load
+  `CLAUDE.md` from added directories by default, so a share written by
+  another container does not become instructions. opencode needs
+  nothing: its built-in `external_directory: ask` rule is followed by
+  the blanket `"*": "allow"` from `OPENCODE_CONFIG_CONTENT`, and its
+  permissions are last-match-wins (checked with `opencode agent list`
+  for the `plan` and `build` agents).
+- **The agent is not told what shares are for.** No env var or seeded
+  instruction mentions them (Claude Code only sees them listed as
+  additional directories); the user points the agent at `/shares/NAME`
+  when it matters. Keeps the seeded templates unchanged.
+
 ## Commits, not pushes
 
 The workflow this tool is designed for is commit-only inside the
