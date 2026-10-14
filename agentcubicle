@@ -12,6 +12,7 @@
 #   agentcubicle commit [--name NAME]                     # Commit running container
 #   agentcubicle cleanup                                  # Remove stopped containers
 #   agentcubicle share <create NAME|list|rm NAME>         # Manage named shares (host dirs)
+#   agentcubicle [<command>|<opencode|claude>] --help     # Help for agentcubicle itself
 #   agentcubicle <opencode|claude> [--mount MOUNT] [--share NAME[:ro|:rw]] [--share-dir PATH[:ro|:rw]] [--env ENV] [--img IMAGE] [--name NAME] [--keep-container] [--] [tool args...]
 #   agentcubicle claude [--account NAME] [...]           # Use ~/.claude/oauth-token-NAME instead of ~/.claude/oauth-token
 #
@@ -38,6 +39,7 @@
 #   agentcubicle opencode --share xchg:ro
 #   agentcubicle claude --share-dir ~/src/other-project/docs
 #   agentcubicle claude -- --model sonnet
+#   agentcubicle claude -- --help                        # Claude Code's own help
 
 set -euo pipefail
 
@@ -135,10 +137,93 @@ _validate_share_name() {
   fi
 }
 
+# Usage lines, shared by --help and the argument errors.
+USAGE_RUN="agentcubicle <opencode|claude> [options...] [--] [tool args...]"
+USAGE_SETUP="agentcubicle setup [--clear] [--claude]"
+USAGE_CHECK="agentcubicle check [--img IMAGE]"
+USAGE_LIST="agentcubicle list [--name NAME]"
+USAGE_SHELL="agentcubicle shell [--name NAME]"
+USAGE_COMMIT="agentcubicle commit [--name NAME]"
+USAGE_CLEANUP="agentcubicle cleanup"
+USAGE_SHARE="agentcubicle share <create NAME|list|rm NAME>"
+
+_print_usage() {
+  echo "Usage: $USAGE_RUN"
+  echo "       $USAGE_SETUP"
+  echo "       $USAGE_CHECK"
+  echo "       $USAGE_LIST"
+  echo "       $USAGE_SHELL"
+  echo "       $USAGE_COMMIT"
+  echo "       $USAGE_CLEANUP"
+  echo "       $USAGE_SHARE"
+  echo
+  echo "Run 'agentcubicle <command> --help' (or 'agentcubicle claude --help') for details."
+}
+
+_print_run_help() {
+  echo "Usage: agentcubicle $1 [options...] [--] [$1 args...]"
+  echo
+  echo "Start $1 in a new container, with the current directory mounted as the project."
+  echo
+  echo "Options:"
+  echo "  --name NAME                Container name (an existing container with that name is replaced)"
+  echo "  --img IMAGE                Image to use instead of the default agentcubicle image"
+  echo "  --mount SRC:DST[:ro]       Extra bind mount, passed to the engine as -v. Repeatable."
+  echo "  --share NAME[:ro|:rw]      Mount named share NAME at /shares/NAME, read-write by default. Repeatable."
+  echo "  --share-dir PATH[:ro|:rw]  Mount host directory PATH at /shares/<basename>, read-only by default. Repeatable."
+  echo "  --env VAR=VALUE            Extra environment variable. Repeatable."
+  echo "  --keep-container           Keep the container after $1 exits"
+  if [[ "$1" == claude ]]; then
+    echo "  --account NAME             Use ~/.claude/oauth-token-NAME instead of ~/.claude/oauth-token"
+  fi
+  echo "  -h, --help                 Show this help"
+  echo
+  echo "Unrecognized arguments, and everything after --, are passed to $1."
+  echo "For $1's own help: agentcubicle $1 -- --help"
+}
+
+# Help is handled here, before engine detection, so it works without docker or
+# podman installed. For a tool, only the arguments before -- are scanned (what
+# follows belongs to the tool), skipping the values of options that take one.
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    -h|--help|help)
+      _print_usage
+      exit 0
+      ;;
+    setup|check|commit|cleanup|list|shell|share)
+      for HELP_ARG in "${@:2}"; do
+        if [[ "$HELP_ARG" == -h || "$HELP_ARG" == --help ]]; then
+          HELP_VAR="USAGE_$(printf %s "$1" | tr a-z A-Z)"
+          echo "Usage: ${!HELP_VAR}"
+          exit 0
+        fi
+      done
+      ;;
+    opencode|claude)
+      HELP_SKIP=false
+      for HELP_ARG in "${@:2}"; do
+        if $HELP_SKIP; then
+          HELP_SKIP=false
+          continue
+        fi
+        case "$HELP_ARG" in
+          --) break ;;
+          -h|--help)
+            _print_run_help "$1"
+            exit 0
+            ;;
+          --name|--img|--mount|--env|--share|--share-dir|--account) HELP_SKIP=true ;;
+        esac
+      done
+      ;;
+  esac
+fi
+
 # `share` only manages host directories, so it is handled here, before engine
 # detection, and works without docker or podman installed.
 if [[ "${1:-}" == "share" ]]; then
-  SHARE_USAGE="Usage: agentcubicle share <create NAME|list|rm NAME>"
+  SHARE_USAGE="Usage: $USAGE_SHARE"
   case "${2:-}" in
     create)
       [[ $# -eq 3 ]] || { echo "$SHARE_USAGE" >&2; exit 1; }
@@ -311,7 +396,7 @@ if [[ "$COMMAND" == "setup" ]]; then
         ;;
       *)
         echo "Error: unknown argument '$1' for setup."
-        echo "Usage: agentcubicle setup [--clear] [--claude]"
+        echo "Usage: $USAGE_SETUP"
         exit 1
         ;;
     esac
@@ -328,7 +413,7 @@ if [[ "$COMMAND" == "check" ]]; then
         ;;
       *)
         echo "Error: unknown argument '$1' for check."
-        echo "Usage: agentcubicle check [--img IMAGE]"
+        echo "Usage: $USAGE_CHECK"
         exit 1
         ;;
     esac
@@ -345,7 +430,7 @@ if [[ "$COMMAND" == "commit" ]]; then
         ;;
       *)
         echo "Error: unknown argument '$1' for commit."
-        echo "Usage: agentcubicle commit [--name NAME]"
+        echo "Usage: $USAGE_COMMIT"
         exit 1
         ;;
     esac
@@ -362,7 +447,7 @@ if [[ "$COMMAND" == "list" ]]; then
         ;;
       *)
         echo "Error: unknown argument '$1' for list."
-        echo "Usage: agentcubicle list [--name NAME]"
+        echo "Usage: $USAGE_LIST"
         exit 1
         ;;
     esac
@@ -379,7 +464,7 @@ if [[ "$COMMAND" == "shell" ]]; then
         ;;
       *)
         echo "Error: unknown argument '$1' for shell."
-        echo "Usage: agentcubicle shell [--name NAME]"
+        echo "Usage: $USAGE_SHELL"
         exit 1
         ;;
     esac
@@ -391,15 +476,7 @@ if [[ -z "$COMMAND" ]]; then
   if [[ $# -lt 1 ]] || [[ "$1" == "--" ]]; then
     echo "Error: First argument must be 'opencode' or 'claude'."
     echo ""
-    echo "Usage: agentcubicle <opencode|claude> [options...] [--] [tool args...]"
-    echo "       agentcubicle claude --account NAME [options...] [--] [tool args...]"
-    echo "       agentcubicle setup [--clear] [--claude]"
-    echo "       agentcubicle check [--img IMAGE]"
-    echo "       agentcubicle list [--name NAME]"
-    echo "       agentcubicle shell [--name NAME]"
-    echo "       agentcubicle commit [--name NAME]"
-    echo "       agentcubicle cleanup"
-    echo "       agentcubicle share <create NAME|list|rm NAME>"
+    _print_usage
     exit 1
   fi
 

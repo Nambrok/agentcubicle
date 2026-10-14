@@ -283,6 +283,8 @@ pulling a newer base.
 
 ## Subcommands
 
+`agentcubicle --help` lists the commands, and every subcommand accepts `-h`/`--help` to print its usage. Help works without a container engine installed.
+
 ### `setup`
 
 Builds the `agentcubicle` image on top of `ghcr.io/anomalyco/opencode` with a full set of development tools and bash. Use `--claude` to install Claude Code on top of the existing image (or add it if missing).
@@ -385,6 +387,7 @@ If no subcommand is given, a new container is started based on `agentcubicle` wi
 | `--env E`   | Extra env var, e.g. `--env ANTHROPIC_API_KEY="sk-ant-..."`. Repeatable. |
 | `--keep-container` | Keep the container after the tool exits. Without it, the container is removed on exit. |
 | `--account A` | `claude` only: use the token in `~/.claude/oauth-token-A` instead of `~/.claude/oauth-token` (see [Using another Claude account](#using-another-claude-account)). |
+| `-h`, `--help` | Show agentcubicle's options for running the tool, without starting a container. For the tool's own help, use `agentcubicle claude -- --help`. |
 | `--`        | Pass remaining arguments directly to the tool                  |
 
 ### Sharing files between containers
