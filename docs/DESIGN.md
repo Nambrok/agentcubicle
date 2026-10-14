@@ -602,6 +602,18 @@ with `agentcubicle share create|list|rm`, and enabled per container with
   contents.** A typo in `--share` fails instead of silently mounting a
   fresh empty directory, and removing data stays a deliberate step the
   user takes on the host.
+- **`--share-dir` for one-off access.** Sharing part of another agent's
+  workspace for a session does not need a named share: `--share-dir
+  PATH[:ro|:rw]` mounts any host directory at `/shares/<basename>`, with
+  the same `--add-dir` handling. It is read-only by default, unlike
+  `--share`, because the usual source is another agent's live working
+  tree, where an unintended write lands in someone else's work. Any host
+  directory is accepted (restricting it to project directories was
+  considered and dropped as not worth the friction); only `/` is refused,
+  having no basename, and paths with `:` or `,`, which `-v` cannot
+  express. Two shares mapping to the same container path are refused
+  rather than silently shadowing each other. A live mount cannot be added
+  to a running container, so the flag only applies at start.
 - **Access outside the working directory.** Mounting outside the
   project means the tools see shares as external paths. Claude Code
   asks before touching files outside its working directories, so each
@@ -609,7 +621,9 @@ with `agentcubicle share create|list|rm`, and enabled per container with
   a variable number of values and would swallow the kickoff prompt if it
   came right before it (checked against the real binary: `claude
   --add-dir /tmp hello -p` reads `hello` as a directory), so it is placed
-  first, ended by `--permission-mode`. Claude Code does not load
+  first, ended by `--permission-mode`. Each path is single-quoted for
+  the inner shell, since `--share-dir` paths can contain spaces or
+  quotes. Claude Code does not load
   `CLAUDE.md` from added directories by default, so a share written by
   another container does not become instructions. opencode needs
   nothing: its built-in `external_directory: ask` rule is followed by

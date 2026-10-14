@@ -12,7 +12,7 @@
 #   agentcubicle commit [--name NAME]                     # Commit running container
 #   agentcubicle cleanup                                  # Remove stopped containers
 #   agentcubicle share <create NAME|list|rm NAME>         # Manage named shares (host dirs)
-#   agentcubicle <opencode|claude> [--mount MOUNT] [--share NAME[:ro|:rw]] [--env ENV] [--img IMAGE] [--name NAME] [--keep-container] [--] [tool args...]
+#   agentcubicle <opencode|claude> [--mount MOUNT] [--share NAME[:ro|:rw]] [--share-dir PATH[:ro|:rw]] [--env ENV] [--img IMAGE] [--name NAME] [--keep-container] [--] [tool args...]
 #   agentcubicle claude [--account NAME] [...]           # Use ~/.claude/oauth-token-NAME instead of ~/.claude/oauth-token
 #
 # Examples:
@@ -36,6 +36,7 @@
 #   agentcubicle share create xchg
 #   agentcubicle claude --share xchg
 #   agentcubicle opencode --share xchg:ro
+#   agentcubicle claude --share-dir ~/src/other-project/docs
 #   agentcubicle claude -- --model sonnet
 
 set -euo pipefail
@@ -100,8 +101,32 @@ ACCOUNT=""
 SHARES_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/agentcubicle/shares"
 CONTAINER_SHARES_DIR="/shares"
 # Claude Code only reads outside its working directory with a permission
-# prompt, so each enabled share is also passed as --add-dir (built below).
+# prompt, so each enabled share is also passed as --add-dir (built below),
+# each path already shell-quoted.
 CLAUDE_ADD_DIRS=""
+# Container paths taken by --share and --share-dir, to refuse two sources
+# landing on the same /shares/NAME.
+SHARE_TARGETS=()
+
+# Quote $1 for the POSIX sh that runs INNER_CMD.
+_sh_quote() {
+  printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+
+# Mount host dir $1 at /shares/$2 with mode $3, and pass it to claude.
+_add_share_mount() {
+  local target="$CONTAINER_SHARES_DIR/$2"
+  local t
+  for t in ${SHARE_TARGETS[@]+"${SHARE_TARGETS[@]}"}; do
+    if [[ "$t" == "$target" ]]; then
+      echo "Error: two shares would both be mounted at $target." >&2
+      exit 1
+    fi
+  done
+  SHARE_TARGETS+=("$target")
+  EXTRA_MOUNTS+=("-v" "$1:$target:$3")
+  CLAUDE_ADD_DIRS+=" $(_sh_quote "$target")"
+}
 
 _validate_share_name() {
   if [[ ! "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
@@ -428,8 +453,39 @@ if [[ -z "$COMMAND" ]]; then
           echo "Create it with: agentcubicle share create $SHARE_NAME" >&2
           exit 1
         fi
-        EXTRA_MOUNTS+=("-v" "$SHARES_ROOT/$SHARE_NAME:$CONTAINER_SHARES_DIR/$SHARE_NAME:$SHARE_MODE")
-        CLAUDE_ADD_DIRS+=" $CONTAINER_SHARES_DIR/$SHARE_NAME"
+        _add_share_mount "$SHARES_ROOT/$SHARE_NAME" "$SHARE_NAME" "$SHARE_MODE"
+        shift 2
+        ;;
+      --share-dir)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          echo "Error: --share-dir needs PATH, PATH:ro or PATH:rw." >&2
+          exit 1
+        fi
+        # Read-only unless asked otherwise: this is typically another
+        # agent's live working tree.
+        SHARE_PATH="$2"
+        SHARE_MODE=ro
+        case "$SHARE_PATH" in
+          *:ro|*:rw)
+            SHARE_MODE="${SHARE_PATH##*:}"
+            SHARE_PATH="${SHARE_PATH%:*}"
+            ;;
+        esac
+        # The engine's -v syntax splits on ':' (and docker --mount on ',').
+        if [[ "$SHARE_PATH" == *[:,]* || "$SHARE_PATH" == *$'\n'* ]]; then
+          echo "Error: --share-dir path '$SHARE_PATH' contains ':', ',' or a newline, which the container engine cannot mount. Mode suffix must be :ro or :rw." >&2
+          exit 1
+        fi
+        if [[ ! -d "$SHARE_PATH" ]]; then
+          echo "Error: --share-dir: '$SHARE_PATH' is not a directory." >&2
+          exit 1
+        fi
+        SHARE_PATH="$(cd "$SHARE_PATH" && pwd -P)"
+        if [[ "$SHARE_PATH" == / ]]; then
+          echo "Error: --share-dir cannot share /." >&2
+          exit 1
+        fi
+        _add_share_mount "$SHARE_PATH" "${SHARE_PATH##*/}" "$SHARE_MODE"
         shift 2
         ;;
       --env)
@@ -1357,8 +1413,7 @@ CLAUDE_TOKEN_PENDING_IN_CONTAINER="$CONTAINER_PROJECT_DIR/$CLAUDE_TOKEN_PENDING_
 
 # --add-dir takes a variable number of directories and would swallow a
 # positional argument right after it (the kickoff prompt, when no tool args
-# are given), so it goes first, ended by --permission-mode. Share names are
-# validated, so the paths need no quoting. opencode needs no equivalent: the
+# are given), so it goes first, ended by --permission-mode. opencode needs no equivalent: the
 # blanket "*": "allow" in OPENCODE_CONFIG_CONTENT comes after its built-in
 # external_directory "ask" rule, and its permissions are last-match-wins.
 CLAUDE_ADD_DIR_ARGS=""
