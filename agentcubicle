@@ -734,8 +734,11 @@ if [[ "$COMMAND" == "check" ]]; then
   # version, not just a tick: their in-container auto-updaters are off (see
   # README "Tool versions in the container"), so whatever the image was built
   # with is what runs, and these lines are how a stale image gets noticed.
-  # Empty output means the probe failed, i.e. the tool is missing.
-  _version() { $ENGINE run --entrypoint sh --rm "$IMAGE" -c "$1" 2>/dev/null | head -n1; }
+  # Empty output means the probe failed, i.e. the tool is missing. The probe's
+  # failure status must not escape: under pipefail it would fail the caller's
+  # assignment, and set -e would end check right there (exit 127 when the
+  # tool is not in the image).
+  _version() { $ENGINE run --entrypoint sh --rm "$IMAGE" -c "$1" 2>/dev/null | head -n1 || true; }
 
   # gh has no apk package, so it is not in REQUIRED_PACKAGES; it is installed
   # from a release tarball to /usr/local/bin/gh (on PATH), checked like claude.
